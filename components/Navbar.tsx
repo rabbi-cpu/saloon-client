@@ -3,377 +3,531 @@
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import axios from "axios";
 import { toast } from "sonner";
 import {
   CalendarCheck,
+  Camera,
+  ChevronDown,
   LayoutDashboard,
+  Loader2,
   LogOut,
   Menu,
   Scissors,
-  Settings,
-  Sparkles,
-  User,
   UserCheck,
+  UserCog,
+  X,
 } from "lucide-react";
 
-import { authClient, dashboardPath } from "@/lib/auth-client";
-import { buttonVariants } from "@/components/ui/button";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
+import { authClient } from "@/lib/auth-client";
+import Image from "next/image";
 
-const publicLinks = [
-  { href: "/", label: "Home" },
-  { href: "/services", label: "Services" },
-  { href: "/#how-it-works", label: "How It Works" },
-  { href: "/about", label: "About" },
-  { href: "/contact", label: "Contact" },
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000";
+
+const NAV_LINKS = [
+  { label: "Home", href: "/" },
+  { label: "About", href: "/about" },
+  { label: "Contact", href: "/contact" },
+  { label: "Services", href: "/services" },
+  { label: "How It Works", href: "/how-it-works" },
 ];
 
 export default function Navbar() {
-  const { data: session, isPending } = authClient.useSession();
-  const user = session?.user as
-    | { name: string; email?: string; image?: string | null; role?: string }
-    | undefined;
-
   const pathname = usePathname();
   const router = useRouter();
-  const [scrolled, setScrolled] = useState(false);
-  const [open, setOpen] = useState(false);
+  const { data: session, isPending } = authClient.useSession();
+  const user = session?.user as
+    | {
+        name: string;
+        email: string;
+        image?: string;
+        role?: string;
+        phone?: string;
+      }
+    | undefined;
 
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+
+  // Profile Settings Modal States (Name & Profile Picture)
+  const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [profileName, setProfileName] = useState("");
+  const [profileImage, setProfileImage] = useState("");
+  const [profilePhone, setProfilePhone] = useState("");
+  const [savingProfile, setSavingProfile] = useState(false);
+
+  // Instant UI overrides after saving
+  const [customName, setCustomName] = useState<string | null>(null);
+  const [customImage, setCustomImage] = useState<string | null>(null);
+
+  const displayName = customName || user?.name || "Member";
+  const displayImage = customImage !== null ? customImage : user?.image || "";
+
+  // Global Axios Interceptor (Safely registered inside useEffect)
   useEffect(() => {
-    const onScroll = () => setScrolled(window.scrollY > 16);
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
+    const interceptorId = axios.interceptors.request.use(async (config) => {
+      try {
+        const { data } = await authClient.getSession();
+        const token =
+          data?.session?.token || (data?.user as { id?: string })?.id;
+        if (token) config.headers.Authorization = `Bearer ${token}`;
+        if (data?.user?.email) config.headers["x-user-email"] = data.user.email;
+      } catch {
+        // Ignore session errors
+      }
+      return config;
+    });
+
+    return () => {
+      axios.interceptors.request.eject(interceptorId);
+    };
   }, []);
 
-  const navLinks = [
-    ...publicLinks,
-    ...(user
-      ? user.role === "admin"
-        ? [{ href: "/admin/services", label: "Manage Services" }]
-        : [{ href: "/dashboard/appointments", label: "My Appointments" }]
-      : []),
-  ];
+  // Open Profile Settings modal with current values
+  function openProfileSettings() {
+    setProfileName(displayName);
+    setProfileImage(displayImage);
+    setProfilePhone(user?.phone || "");
+    setDropdownOpen(false);
+    setMobileOpen(false);
+    setProfileModalOpen(true);
+  }
 
-  async function handleLogout() {
+  // Handle local image file selection -> Base64 preview
+  function handleImageFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error("Please select an image smaller than 2MB.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (typeof reader.result === "string") {
+        setProfileImage(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
+  // Save updated Name & Profile Picture to Better Auth + Express Backend
+  async function handleSaveProfile(e: React.FormEvent) {
+    e.preventDefault();
+    if (!profileName.trim()) {
+      toast.error("Name cannot be empty.");
+      return;
+    }
+
+    setSavingProfile(true);
+    try {
+      const { data: sess } = await authClient.getSession();
+      const token =
+        sess?.session?.token || (sess?.user as { id?: string })?.id || "";
+
+      // 1. Update in Express MongoDB backend
+      await axios.patch(
+        `${API_BASE}/api/users/profile`,
+        {
+          name: profileName.trim(),
+          image: profileImage.trim(),
+          phone: profilePhone.trim(),
+        },
+        {
+          headers: {
+            Authorization: token ? `Bearer ${token}` : "",
+            "x-user-email": user?.email || "",
+          },
+          withCredentials: true,
+        }
+      );
+
+      // 2. Sync with Better Auth session if supported
+      try {
+        await authClient.updateUser({
+          name: profileName.trim(),
+          image: profileImage.trim() || undefined,
+        });
+      } catch {
+        // Backend already updated
+      }
+
+      setCustomName(profileName.trim());
+      setCustomImage(profileImage.trim());
+      toast.success("Profile name & photo updated!");
+      setProfileModalOpen(false);
+    } catch {
+      toast.error("Failed to update profile settings.");
+    } finally {
+      setSavingProfile(false);
+    }
+  }
+
+  const dashboardHref =
+    user?.role === "admin" ? "/dashboard/admin" : "/dashboard/customer";
+
+  async function handleSignOut() {
     await authClient.signOut();
-    toast.success("You have been logged out");
-    router.push("/");
-    router.refresh();
+    setDropdownOpen(false);
+    toast.success("Signed out successfully.");
+    router.push("/signin");
   }
 
   return (
-    <header
-      className={`sticky top-0 z-50 w-full transition-all duration-500 ease-out ${
-        scrolled
-          ? "border-b border-rose-500/20 bg-slate-950/90 shadow-[0_10px_35px_rgba(0,0,0,0.5)] backdrop-blur-xl"
-          : "border-b border-white/10 bg-slate-950/95 backdrop-blur-md"
-      }`}
-    >
-      <nav
-        className={`mx-auto flex max-w-6xl items-center justify-between px-4 transition-all duration-500 ease-out sm:px-6 ${
-          scrolled ? "h-16" : "h-20"
-        }`}
-      >
-        {/* Brand Logo */}
-        <Link
-          href="/"
-          className="group flex items-center gap-2.5 text-2xl font-bold tracking-tight text-white"
-        >
-          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-linear-to-br from-rose-500 to-pink-600 text-white shadow-lg shadow-rose-500/30 transition-transform duration-300 group-hover:rotate-12 group-hover:scale-105">
-            <Scissors className="h-4 w-4" />
-          </span>
-          <span>
-            Salon
-            <span className="bg-linear-to-r from-rose-300 via-pink-400 to-amber-200 bg-clip-text text-transparent">
-              Book
-            </span>
-          </span>
-        </Link>
+    <>
+      <header className="sticky top-0 z-40 border-b border-white/10 bg-slate-950/90 backdrop-blur-xl">
+        <div className="mx-auto flex h-18 max-w-6xl items-center justify-between px-4 sm:px-6">
+          {/* Brand Logo */}
+          <Link href="/" className="flex items-center gap-2.5">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-linear-to-br from-rose-500 to-pink-600 text-white shadow-lg shadow-rose-500/30">
+              <Scissors className="h-5 w-5" />
+            </div>
+            <div>
+              <span className="block text-lg font-extrabold tracking-tight text-white">
+                SalonBook
+              </span>
+              <span className="block text-[9px] font-semibold tracking-[0.22em] text-rose-300 uppercase">
+                Luxury Studio
+              </span>
+            </div>
+          </Link>
 
-        {/* Desktop Nav Items with Glowing Bottom Light */}
-        <div className="hidden items-center gap-1 lg:flex">
-          {navLinks.map((link) => {
-            const isHashLink = link.href.startsWith("/#");
-            const active = isHashLink
-              ? false
-              : link.href === "/"
-              ? pathname === "/"
-              : pathname.startsWith(link.href);
+          {/* Desktop Nav Links */}
+          <nav className="hidden items-center gap-6 md:flex">
+            {NAV_LINKS.map((item) => {
+              const active = pathname === item.href;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={`text-sm font-medium transition ${
+                    active
+                      ? "font-bold text-rose-400"
+                      : "text-slate-300 hover:text-white"
+                  }`}
+                >
+                  {item.label}
+                </Link>
+              );
+            })}
 
-            return (
+            {user && (
               <Link
-                key={link.href}
-                href={link.href}
-                className={`group relative px-4 py-2.5 text-sm font-medium transition-colors duration-300 ${
-                  active ? "text-white" : "text-slate-300 hover:text-white"
+                href={dashboardHref}
+                className={`inline-flex items-center gap-1.5 text-sm font-semibold transition ${
+                  pathname?.startsWith("/dashboard")
+                    ? "text-amber-300"
+                    : "text-amber-400 hover:text-amber-300"
                 }`}
               >
-                <span className="relative z-10">{link.label}</span>
-
-                {/* Glowing Light Bar Under Item */}
-                <span
-                  aria-hidden="true"
-                  className={`absolute inset-x-3 bottom-0.5 h-[2px rounded-full bg-linear-to-r from-rose-400 via-pink-500 to-amber-300 transition-all duration-300 ${
-                    active
-                      ? "scale-x-100 opacity-100 shadow-[0_0_12px_#f43f5e,0_0_20px_#ec4899]"
-                      : "scale-x-0 opacity-0 group-hover:scale-x-100 group-hover:opacity-100 group-hover:shadow-[0_0_12px_#f43f5e]"
-                  }`}
-                />
-                {/* Soft Ambient Bottom Glow */}
-                <span
-                  aria-hidden="true"
-                  className={`absolute inset-x-4 -bottom-0.5 h-2 rounded-full bg-rose-500/40 blur-sm transition-opacity duration-300 ${
-                    active ? "opacity-100" : "opacity-0 group-hover:opacity-80"
-                  }`}
-                />
+                <LayoutDashboard className="h-4 w-4" />
+                Dashboard
               </Link>
-            );
-          })}
-        </div>
+            )}
+          </nav>
 
-        {/* Desktop Auth / Profile */}
-        <div className="hidden items-center gap-3 lg:flex">
-          {isPending ? (
-            <div className="h-10 w-28 animate-pulse rounded-full bg-white/10" />
-          ) : user ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger className="group flex items-center gap-2.5 rounded-full border border-white/15 bg-white/6 p-1 pr-3.5 shadow-sm outline-none transition-all duration-300 hover:border-rose-400/40 hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-rose-500">
-                <Avatar className="h-8 w-8 ring-2 ring-rose-400/30 transition-transform duration-300 group-hover:scale-105">
-                  <AvatarImage src={user.image ?? undefined} alt={user.name} />
-                  <AvatarFallback className="bg-linear-to-br from-rose-500 to-pink-600 text-xs font-semibold text-white">
-                    {user.name?.charAt(0).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex flex-col text-left">
-                  <span className="max-w-110px truncate text-xs font-semibold text-white">
-                    {user.name}
-                  </span>
-                  <span className="text-[10px] font-medium capitalize text-rose-300">
-                    {user.role || "Customer"}
-                  </span>
-                </div>
-              </DropdownMenuTrigger>
-
-              <DropdownMenuContent
-                align="end"
-                className="mt-2 w-60 rounded-2xl border-white/15 bg-slate-900/95 p-2 text-slate-200 shadow-2xl backdrop-blur-xl"
-              >
-                <div className="px-3 py-2">
-                  <p className="truncate text-sm font-semibold text-white">
-                    {user.name}
-                  </p>
-                  {user.email && (
-                    <p className="truncate text-xs text-slate-400">
-                      {user.email}
-                    </p>
-                  )}
-                </div>
-                <DropdownMenuSeparator className="bg-white/10" />
-                <DropdownMenuItem
-                  onClick={() => router.push(dashboardPath(user.role))}
-                  className="cursor-pointer rounded-xl py-2.5 text-sm font-medium text-slate-200 focus:bg-white/10 focus:text-rose-300"
+          {/* Right User Profile Pill & Dropdown */}
+          <div className="hidden items-center gap-3 md:flex">
+            {isPending ? (
+              <div className="h-10 w-36 animate-pulse rounded-full bg-white/10" />
+            ) : !user ? (
+              <div className="flex items-center gap-2.5">
+                <Link
+                  href="/signin"
+                  className="rounded-full border border-white/15 px-4 py-2 text-xs font-semibold text-white hover:border-rose-400/50"
                 >
-                  <LayoutDashboard className="mr-2.5 h-4 w-4 text-rose-400" />
-                  Dashboard
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() =>
-                    router.push(
-                      user.role === "admin"
-                        ? "/admin/services"
-                        : "/dashboard/appointments"
-                    )
-                  }
-                  className="cursor-pointer rounded-xl py-2.5 text-sm font-medium text-slate-200 focus:bg-white/10 focus:text-rose-300"
+                  Sign In
+                </Link>
+                <Link
+                  href="/signup"
+                  className="rounded-full bg-linear-to-r from-rose-500 to-pink-600 px-5 py-2 text-xs font-semibold text-white shadow-lg shadow-rose-500/25 hover:from-rose-600 hover:to-pink-700"
                 >
-                  {user.role === "admin" ? (
-                    <>
-                      <Settings className="mr-2.5 h-4 w-4 text-rose-400" />
-                      Manage Services
-                    </>
+                  Get Started
+                </Link>
+              </div>
+            ) : (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setDropdownOpen((prev) => !prev)}
+                  className="flex items-center gap-2.5 rounded-full border border-white/15 bg-white/4 py-1.5 pr-3.5 pl-2 text-left transition hover:border-rose-400/40"
+                >
+                  {displayImage ? (
+                    <Image
+                      src={displayImage}
+                      alt={displayName}
+                      width={32}
+                      height={32}
+                      className="h-8 w-8 rounded-full object-cover ring-1 ring-rose-400/50"
+                    />
                   ) : (
-                    <>
-                      <CalendarCheck className="mr-2.5 h-4 w-4 text-rose-400" />
-                      My Appointments
-                    </>
+                    <span className="flex h-8 w-8 items-center justify-center rounded-full bg-linear-to-r from-rose-500 to-pink-600 text-xs font-bold text-white uppercase">
+                      {displayName.charAt(0)}
+                    </span>
                   )}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => router.push("/profile")}
-                  className="cursor-pointer rounded-xl py-2.5 text-sm font-medium text-slate-200 focus:bg-white/10 focus:text-rose-300"
-                >
-                  <User className="mr-2.5 h-4 w-4 text-rose-400" />
-                  My Profile
-                </DropdownMenuItem>
-                <DropdownMenuSeparator className="bg-white/10" />
-                <DropdownMenuItem
-                  onClick={handleLogout}
-                  className="cursor-pointer rounded-xl py-2.5 text-sm font-medium text-rose-400 focus:bg-rose-500/15 focus:text-rose-300"
-                >
-                  <LogOut className="mr-2.5 h-4 w-4" />
-                  Logout
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : (
-            <div className="flex items-center gap-2.5">
-              <Link
-                href="/signin"
-                className={`${buttonVariants({ variant: "ghost" })} rounded-full px-5 font-medium text-slate-200 hover:bg-white/10 hover:text-white`}
-              >
-                Sign In
-              </Link>
-              <Link
-                href="/signup"
-                className={`${buttonVariants()} group rounded-full bg-linear-to-r from-rose-500 to-pink-600 px-6 font-semibold text-white shadow-lg shadow-rose-500/30 transition-all duration-300 hover:scale-[1.02] hover:from-rose-600 hover:to-pink-700`}
-              >
-                <Sparkles className="mr-1.5 h-3.5 w-3.5 transition-transform duration-300 group-hover:rotate-12" />
-                Sign Up
-              </Link>
-            </div>
-          )}
+                  <div>
+                    <p className="max-w-36 truncate text-xs font-bold text-white uppercase">
+                      {displayName}
+                    </p>
+                    <p className="text-[10px] font-semibold tracking-wider text-rose-400 uppercase">
+                      {user.role === "admin" ? "ADMIN" : "MEMBER"}
+                    </p>
+                  </div>
+                  <ChevronDown
+                    className={`h-3.5 w-3.5 text-slate-400 transition-transform ${
+                      dropdownOpen ? "rotate-180" : ""
+                    }`}
+                  />
+                </button>
+
+                {dropdownOpen && (
+                  <div className="absolute right-0 mt-2.5 w-64 rounded-2xl border border-white/15 bg-slate-900/95 p-3 shadow-2xl backdrop-blur-xl">
+                    <div className="px-2 pb-3">
+                      <p className="truncate text-xs font-extrabold text-white uppercase">
+                        {displayName}
+                      </p>
+                      <p className="truncate text-[11px] text-slate-400">
+                        {user.email}
+                      </p>
+                      <span className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-rose-500/30 bg-rose-500/15 px-2.5 py-0.5 text-[10px] font-bold tracking-wider text-rose-300 uppercase">
+                        <UserCheck className="h-3 w-3 text-rose-400" />
+                        {user.role === "admin"
+                          ? "SYSTEM ADMIN"
+                          : "VERIFIED CLIENT"}
+                      </span>
+                    </div>
+
+                    <div className="my-1 border-t border-white/10" />
+
+                    <Link
+                      href={dashboardHref}
+                      onClick={() => setDropdownOpen(false)}
+                      className="flex items-center gap-2.5 rounded-xl px-2.5 py-2.5 text-xs font-semibold text-slate-200 transition hover:bg-white/10"
+                    >
+                      <LayoutDashboard className="h-4 w-4 text-rose-400" />
+                      My Dashboard
+                    </Link>
+
+                    <Link
+                      href="/services"
+                      onClick={() => setDropdownOpen(false)}
+                      className="flex items-center gap-2.5 rounded-xl px-2.5 py-2.5 text-xs font-semibold text-slate-200 transition hover:bg-white/10"
+                    >
+                      <CalendarCheck className="h-4 w-4 text-amber-400" />
+                      Book a Treatment
+                    </Link>
+
+                    <button
+                      type="button"
+                      onClick={openProfileSettings}
+                      className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2.5 text-left text-xs font-semibold text-slate-200 transition hover:bg-white/10"
+                    >
+                      <UserCog className="h-4 w-4 text-sky-400" />
+                      Profile Settings
+                    </button>
+
+                    <div className="my-1 border-t border-white/10" />
+
+                    <button
+                      type="button"
+                      onClick={handleSignOut}
+                      className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2.5 text-left text-xs font-semibold text-rose-400 transition hover:bg-rose-500/15"
+                    >
+                      <LogOut className="h-4 w-4" />
+                      Sign Out
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Mobile Hamburger */}
+          <button
+            type="button"
+            onClick={() => setMobileOpen((prev) => !prev)}
+            className="rounded-xl border border-white/15 p-2 text-slate-200 md:hidden"
+          >
+            {mobileOpen ? (
+              <X className="h-5 w-5" />
+            ) : (
+              <Menu className="h-5 w-5" />
+            )}
+          </button>
         </div>
 
         {/* Mobile Drawer */}
-        <Sheet open={open} onOpenChange={setOpen}>
-          <SheetTrigger
-            aria-label="Open menu"
-            className={`${buttonVariants({ variant: "ghost", size: "icon" })} rounded-full border border-white/15 bg-white/5 text-white hover:bg-white/15 hover:text-rose-300 lg:hidden`}
+        {mobileOpen && (
+          <div className="space-y-2 border-t border-white/10 bg-slate-950 px-4 py-4 md:hidden">
+            {NAV_LINKS.map((item) => (
+              <Link
+                key={item.href}
+                href={item.href}
+                onClick={() => setMobileOpen(false)}
+                className="block rounded-xl px-3 py-2 text-sm font-medium text-slate-200 hover:bg-white/5"
+              >
+                {item.label}
+              </Link>
+            ))}
+            {user ? (
+              <>
+                <Link
+                  href={dashboardHref}
+                  onClick={() => setMobileOpen(false)}
+                  className="block rounded-xl px-3 py-2 text-sm font-semibold text-amber-400"
+                >
+                  My Dashboard
+                </Link>
+                <button
+                  type="button"
+                  onClick={openProfileSettings}
+                  className="block w-full rounded-xl px-3 py-2 text-left text-sm font-medium text-sky-300"
+                >
+                  Profile Settings
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  className="block w-full rounded-xl px-3 py-2 text-left text-sm font-semibold text-rose-400"
+                >
+                  Sign Out
+                </button>
+              </>
+            ) : (
+              <Link
+                href="/signin"
+                onClick={() => setMobileOpen(false)}
+                className="block rounded-full bg-linear-to-r from-rose-500 to-pink-600 py-2.5 text-center text-xs font-semibold text-white"
+              >
+                Sign In
+              </Link>
+            )}
+          </div>
+        )}
+      </header>
+
+      {/* Profile Settings Modal (Change Profile Photo & Display Name) */}
+      {profileModalOpen && user && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm">
+          <form
+            onSubmit={handleSaveProfile}
+            className="w-full max-w-md space-y-4 rounded-3xl border border-white/15 bg-slate-900 p-6 text-white shadow-2xl"
           >
-            <Menu className="h-5 w-5" />
-          </SheetTrigger>
-
-          <SheetContent
-            side="right"
-            className="flex w-80 flex-col justify-between border-l border-white/10 bg-slate-950/95 text-white backdrop-blur-2xl"
-          >
-            <div>
-              <SheetHeader className="border-b border-white/10 pb-4 text-left">
-                <SheetTitle className="flex items-center gap-2.5 text-xl font-bold text-white">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-linear-to-br from-rose-500 to-pink-600 text-white">
-                    <Scissors className="h-4 w-4" />
-                  </span>
-                  <span>
-                    Salon<span className="text-rose-400">Book</span>
-                  </span>
-                </SheetTitle>
-              </SheetHeader>
-
-              <div className="mt-6 flex flex-col gap-2">
-                {navLinks.map((link) => {
-                  const active =
-                    link.href === "/"
-                      ? pathname === "/"
-                      : pathname.startsWith(link.href);
-
-                  return (
-                    <Link
-                      key={link.href}
-                      href={link.href}
-                      onClick={() => setOpen(false)}
-                      className={`relative flex items-center justify-between overflow-hidden rounded-xl px-4 py-3 text-sm font-medium transition-all ${
-                        active
-                          ? "bg-rose-500/15 font-semibold text-rose-300 ring-1 ring-rose-400/30"
-                          : "text-slate-300 hover:bg-white/5 hover:text-white"
-                      }`}
-                    >
-                      <span>{link.label}</span>
-                      {active && (
-                        <span className="h-2 w-2 rounded-full bg-rose-400 shadow-[0_0_10px_#f43f5e]" />
-                      )}
-                    </Link>
-                  );
-                })}
-              </div>
+            <div className="flex items-center justify-between">
+              <h3 className="flex items-center gap-2 text-lg font-bold">
+                <UserCog className="h-5 w-5 text-rose-400" />
+                Profile Settings
+              </h3>
+              <button
+                type="button"
+                onClick={() => setProfileModalOpen(false)}
+                className="rounded-lg p-1 text-slate-400 hover:text-white"
+              >
+                <X className="h-5 w-5" />
+              </button>
             </div>
 
-            <div className="border-t border-white/10 pt-4">
-              {user ? (
-                <div className="flex flex-col gap-1.5">
-                  <div className="mb-2 flex items-center gap-3 rounded-xl border border-white/10 bg-white/5 p-3">
-                    <Avatar className="h-10 w-10 ring-2 ring-rose-400/30">
-                      <AvatarImage src={user.image ?? undefined} alt={user.name} />
-                      <AvatarFallback className="bg-rose-500 text-sm font-semibold text-white">
-                        {user.name?.charAt(0).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="overflow-hidden">
-                      <p className="truncate text-sm font-semibold text-white">
-                        {user.name}
-                      </p>
-                      <p className="flex items-center gap-1 text-xs capitalize text-rose-300">
-                        <UserCheck className="h-3 w-3" />
-                        {user.role || "Customer"}
-                      </p>
-                    </div>
+            {/* Avatar Live Preview + Upload Button */}
+            <div className="flex flex-col items-center gap-3 rounded-2xl border border-white/10 bg-slate-950/70 p-4">
+              <div className="relative">
+                {profileImage ? (
+                  <Image
+                    src={profileImage}
+                    alt="Profile Preview"
+                    width={80}
+                    height={80}
+                    className="h-20 w-20 rounded-full object-cover ring-2 ring-rose-500"
+                  />
+                ) : (
+                  <div className="flex h-20 w-20 items-center justify-center rounded-full bg-linear-to-r from-rose-500 to-pink-600 text-2xl font-extrabold text-white uppercase">
+                    {(profileName || user.name).charAt(0)}
                   </div>
-
-                  <Link
-                    href={dashboardPath(user.role)}
-                    onClick={() => setOpen(false)}
-                    className="flex items-center gap-2.5 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-200 transition-colors hover:bg-white/10 hover:text-rose-300"
-                  >
-                    <LayoutDashboard className="h-4 w-4 text-rose-400" />
-                    Dashboard
-                  </Link>
-
-                  <Link
-                    href="/profile"
-                    onClick={() => setOpen(false)}
-                    className="flex items-center gap-2.5 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-200 transition-colors hover:bg-white/10 hover:text-rose-300"
-                  >
-                    <User className="h-4 w-4 text-rose-400" />
-                    My Profile
-                  </Link>
-
-                  <button
-                    onClick={() => {
-                      setOpen(false);
-                      handleLogout();
-                    }}
-                    className="flex items-center gap-2.5 rounded-xl px-4 py-2.5 text-left text-sm font-medium text-rose-400 transition-colors hover:bg-rose-500/15"
-                  >
-                    <LogOut className="h-4 w-4" />
-                    Logout
-                  </button>
-                </div>
-              ) : (
-                <div className="flex flex-col gap-2.5">
-                  <Link
-                    href="/signin"
-                    onClick={() => setOpen(false)}
-                    className={`${buttonVariants({ variant: "outline" })} w-full rounded-xl border-white/15 bg-white/5 font-medium text-white hover:bg-white/10`}
-                  >
-                    Sign In
-                  </Link>
-                  <Link
-                    href="/signup"
-                    onClick={() => setOpen(false)}
-                    className={`${buttonVariants()} w-full rounded-xl bg-linear-to-r from-rose-500 to-pink-600 font-semibold text-white shadow-lg shadow-rose-500/25`}
-                  >
-                    Sign Up
-                  </Link>
-                </div>
-              )}
+                )}
+                <label
+                  htmlFor="pp-file-upload"
+                  className="absolute right-0 bottom-0 flex h-7 w-7 cursor-pointer items-center justify-center rounded-full bg-rose-500 text-white shadow-md hover:bg-rose-600"
+                  title="Upload Photo"
+                >
+                  <Camera className="h-3.5 w-3.5" />
+                </label>
+                <input
+                  id="pp-file-upload"
+                  type="file"
+                  accept="image/*"
+                  onChange={handleImageFileChange}
+                  className="hidden"
+                />
+              </div>
+              <p className="text-[11px] text-slate-400">
+                Click the camera icon to upload a photo or paste an image URL
+                below
+              </p>
             </div>
-          </SheetContent>
-        </Sheet>
-      </nav>
-    </header>
+
+            {/* Profile Picture URL */}
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-300">
+                Profile Picture URL
+              </label>
+              <input
+                type="text"
+                value={profileImage}
+                onChange={(e) => setProfileImage(e.target.value)}
+                placeholder="https://example.com/my-photo.jpg"
+                className="w-full rounded-xl border border-white/15 bg-slate-950 px-4 py-2.5 text-sm text-white placeholder:text-slate-500 focus:border-rose-400 focus:outline-none"
+              />
+            </div>
+
+            {/* Display Name */}
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-300">
+                Display Name
+              </label>
+              <input
+                type="text"
+                required
+                value={profileName}
+                onChange={(e) => setProfileName(e.target.value)}
+                placeholder="Enter your full name"
+                className="w-full rounded-xl border border-white/15 bg-slate-950 px-4 py-2.5 text-sm text-white focus:border-rose-400 focus:outline-none"
+              />
+            </div>
+
+            {/* Phone Number */}
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-300">
+                Phone Number (Optional)
+              </label>
+              <input
+                type="tel"
+                value={profilePhone}
+                onChange={(e) => setProfilePhone(e.target.value)}
+                placeholder="+880 1XXX-XXXXXX"
+                className="w-full rounded-xl border border-white/15 bg-slate-950 px-4 py-2.5 text-sm text-white placeholder:text-slate-500 focus:border-rose-400 focus:outline-none"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setProfileModalOpen(false)}
+                className="rounded-full bg-white/10 px-4 py-2 text-xs font-semibold text-slate-300 hover:bg-white/20"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={savingProfile}
+                className="inline-flex items-center gap-1.5 rounded-full bg-linear-to-r from-rose-500 to-pink-600 px-5 py-2 text-xs font-semibold text-white shadow-lg shadow-rose-500/25 hover:from-rose-600 hover:to-pink-700 disabled:opacity-60"
+              >
+                {savingProfile && (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                )}
+                Save Changes
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+    </>
   );
 }

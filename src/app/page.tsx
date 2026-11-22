@@ -4,7 +4,9 @@ import React from "react";
 import Link from "next/link";
 import { ArrowRight, Sparkles } from "lucide-react";
 import HeroBanner from "@/components/HeroBanner";
+import SalonExperiences from "@/components/SalonExperiences";
 import FeaturedServices from "@/components/FeaturedServices";
+import SalonLookbook from "@/components/SalonLookbook";
 import { authClient, dashboardPath } from "@/lib/auth-client";
 import { buttonVariants } from "@/components/ui/button";
 
@@ -14,10 +16,11 @@ export default function HomePage() {
 
   return (
     <div className="bg-slate-950 text-white">
+      
       <HeroBanner />
+      <SalonExperiences />
       <FeaturedServices />
-
-      {/* Ready-to-Book CTA Section */}
+      <SalonLookbook />
       <section className="relative isolate overflow-hidden bg-slate-950 pt-6 pb-24">
         <div className="mx-auto max-w-6xl px-4 sm:px-6">
           <div className="relative overflow-hidden rounded-2rem border border-rose-400/30 bg-linear-to-r from-rose-500/20 via-slate-900/90 to-pink-600/20 p-8 text-center shadow-2xl backdrop-blur-2xl sm:p-14">
@@ -38,7 +41,7 @@ export default function HomePage() {
                 href="/services"
                 className={`${buttonVariants()} group rounded-full bg-linear-to-r from-rose-500 to-pink-600 px-8 py-6 text-sm font-semibold text-white shadow-xl shadow-rose-500/30 hover:from-rose-600 hover:to-pink-700`}
               >
-                <span>Explore & Filter Services</span>
+                <span>Explore Services</span>
                 <ArrowRight className="ml-2 h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" />
               </Link>
 
