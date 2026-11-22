@@ -1,36 +1,63 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SalonBook — Luxury Studio & Appointment Booking Platform
 
-## Getting Started
+**SalonBook** is a full-stack luxury salon appointment booking and studio management web application built with **Next.js (App Router)**, **TypeScript**, **Tailwind CSS**, **Better Auth**, **Express.js**, **MongoDB**, and **Stripe**.
 
-First, run the development server:
+---
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Live Links & Repositories
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+- **Live Client URL:** `https://your-salonbook-client.vercel.app`
+- **Live Server API URL:** `https://saloon-server.vercel.app`
+- **GitHub Profile:** [@rabbi-cpu](https://github.com/rabbi-cpu)
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+---
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Key Features
 
-## Learn More
+### Customer Experience
+- **Service Catalog & Filtering:** Browse luxury salon treatments with real-time search, category filtering, and price sorting.
+- **Smart Slot Booking:** Reserve appointments by selecting preferred dates and time slots with conflict prevention.
+- **Secure Stripe Checkout:** Pay online seamlessly via Stripe Hosted Checkout Sessions and receive instant booking confirmation.
+- **Transaction Tracking:** View and copy the Stripe Transaction ID (`TX ID`) directly from the customer dashboard.
+- **Verified Reviews:** Submit ratings and reviews after completing a paid treatment.
+- **Profile Management:** Update display name, phone number, and profile photo (via image URL or direct file upload) from the navbar dropdown.
 
-To learn more about Next.js, take a look at the following resources:
+### Admin Control Center
+- **Dynamic Role Synchronization:** Admin privileges are automatically synced via environment configuration (`ADMIN_EMAILS`).
+- **Service Management:** Create, edit, toggle active status, or delete salon treatments.
+- **Appointment Oversight:** Confirm pending requests or cancel appointments across all customers.
+- **Customer Moderation:** View registered customers and manage account access (Block / Unblock).
+- **Payment Ledger:** Monitor all successful Stripe transactions and revenue statistics.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+### Authentication & Security
+- **Better Auth Integration:** Supports Email/Password authentication and Google OAuth social login.
+- **Form Validation:** Enforces minimum 8-character password validation and includes a password reset request modal.
+- **Protected Dashboards:** Role-based routing for `/dashboard/customer` and `/dashboard/admin`.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+---
 
-## Deploy on Vercel
+## Tech Stack
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+| Layer | Technologies |
+| :--- | :--- |
+| **Frontend** | Next.js (App Router), TypeScript, Tailwind CSS, Lucide React, Axios, Sonner |
+| **Authentication** | Better Auth (Email/Password + Google OAuth) |
+| **Backend** | Node.js, Express.js |
+| **Database** | MongoDB (`salonBookDB`) |
+| **Payments** | Stripe Checkout & Webhooks |
+| **Deployment** | Vercel |
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+---
+
+## Environment Variables Setup
+
+Create a `.env.local` file in the root of the client directory and configure the following variables:
+
+```env
+NEXT_PUBLIC_API_URL=[https://saloon-server.vercel.app](https://saloon-server.vercel.app)
+BETTER_AUTH_URL=http://localhost:3000
+BETTER_AUTH_SECRET=your_better_auth_secret_key
+MONGODB_URI=your_mongodb_connection_string
+DB_NAME=salonBookDB
+GOOGLE_CLIENT_ID=your_google_oauth_client_id
+GOOGLE_CLIENT_SECRET=your_google_oauth_client_secret
