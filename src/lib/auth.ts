@@ -7,7 +7,11 @@ const db = client.db("salonBookDB");
 
 export const auth = betterAuth({
   database: mongodbAdapter(db),
-  baseURL: process.env.BETTER_AUTH_URL || "http://localhost:3000",
+  baseURL: process.env.BETTER_AUTH_URL || "https://saloon-client-ten.vercel.app",
+  trustedOrigins: [
+    "http://localhost:3000",
+    "https://saloon-client-ten.vercel.app",
+  ],
   secret: process.env.BETTER_AUTH_SECRET,
   emailAndPassword: {
     enabled: true,
